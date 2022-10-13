@@ -43,6 +43,8 @@ namespace BepInPluginSample
         #region 변수
         // =========================================================
 
+        private static ConfigEntry<bool> destroyPlayer;
+        private static ConfigEntry<bool> gameOver;
         private static ConfigEntry<bool> playerHealtHit;
         private static ConfigEntry<int> ammoMulti;
         // private static ConfigEntry<float> xpMulti;
@@ -76,6 +78,8 @@ namespace BepInPluginSample
             #region 변수 설정
             // =========================================================
 
+            destroyPlayer = Config.Bind("game", "destroyPlayer", false);
+            gameOver = Config.Bind("game", "gameOver", false);
             playerHealtHit = Config.Bind("game", "PlayerHealtHit", false);
             ammoMulti = Config.Bind("game", "ammoMulti", 10);
 
@@ -184,6 +188,9 @@ namespace BepInPluginSample
                 #region 여기에 GUI 항목 작성
                 // =========================================================
 
+                if (GUILayout.Button($"destroyPlayer {destroyPlayer.Value}")) { destroyPlayer.Value = !destroyPlayer.Value; }
+                if (GUILayout.Button($"gameOver {gameOver.Value}")) { gameOver.Value = !gameOver.Value; }
+                
                 if (GUILayout.Button($"playerHealtHit {playerHealtHit.Value}")) { playerHealtHit.Value = !playerHealtHit.Value; }
 
                 GUILayout.Label("--- ---");
@@ -198,14 +205,43 @@ namespace BepInPluginSample
                 {
                     foreach (PlayerWeaponController item in playerWeaponControllers)
                     {
+                        if (item!=null)
+                        {                           
                         GUILayout.Label($"{item.name} , {item.currentAmmo} , {item.maxAmmo} , {item.fireRate} ");
                         if (GUILayout.Button("+10000")) { item.currentAmmo += 10000; }
+                        }
+                        else
+                        {
+                            GUILayout.Label("PlayerWeaponController null");
+                        }
                         //GUILayout.Label($"{item.weaponSlider.name} , {item.weaponSlider.value} , {item.weaponSlider.minValue} , {item.weaponSlider.maxValue}");
                     }
                 }
                 else
                 {
                     GUILayout.Label("playerWeaponControllers null");
+                }
+
+                if (playerLaserScript != null)
+                {
+                    GUILayout.Label($"{playerLaserScript.name} , {playerLaserScript.currentAmmo} , {playerLaserScript.maxAmmo} , {playerLaserScript.fireRate} ");
+                    if (GUILayout.Button("+10000")) { playerLaserScript.currentAmmo += 10000; }
+                }
+                else
+                {
+                    GUILayout.Label("playerLaserScript null");
+                }
+                
+                if (shieldActivatorScript != null)
+                {
+                    GUILayout.Label($"{shieldActivatorScript.name} , {shieldActivatorScript.currentAmmo} , {shieldActivatorScript.maxAmmo} , {shieldActivatorScript.fireRate}  , {shieldActivatorScript.timeOfShield} ");
+                    if (GUILayout.Button("+10000")) { shieldActivatorScript.currentAmmo += 10000; }                                                           
+                    if (GUILayout.Button($"timeOfShield set 1000")) { shieldActivatorScript.timeOfShield = 1000; }
+                    if (GUILayout.Button($"timeOfShield set 2")) { shieldActivatorScript.timeOfShield = 2; }                    
+                }
+                else
+                {
+                    GUILayout.Label("shieldActivatorScript null");
                 }
 
                 GUILayout.Label("--- ---");
@@ -235,7 +271,10 @@ namespace BepInPluginSample
         [HarmonyPrefix]
         public static void HitPre(PlayerHealth __instance, ref float damage)
         {
-            //logger.LogWarning($"PlayerHealth.Hit {damage}");
+            if (damage>100f)
+            {
+                logger.LogWarning($"PlayerHealth.Hit {damage}");
+            }
             if (!playerHealtHit.Value)
             {
                 if (damage > 0)
@@ -250,17 +289,28 @@ namespace BepInPluginSample
         public static void PowerUp(PlayerWeaponController __instance, ref int addBullets)
         {
             logger.LogWarning($"PlayerWeaponController.PowerUp {addBullets}");
-            addBullets *= ammoMulti.Value;
+
+            __instance.currentAmmo=__instance.maxAmmo;
+            //addBullets *= ammoMulti.Value;
         }
 
         static List<PlayerWeaponController> playerWeaponControllers = new List<PlayerWeaponController>();
+        static PlayerLaserScript playerLaserScript=null;
+        static ShieldActivatorScript shieldActivatorScript =null;
+
+        private static void SetClear()
+        {
+            playerWeaponControllers.Clear();
+            playerLaserScript = null;
+            shieldActivatorScript = null;
+        }
 
         [HarmonyPatch(typeof(Done_GameController), "Awake")]
         [HarmonyPostfix]
         public static void AwakePost(Done_GameController __instance)
         {
             logger.LogWarning($"Done_GameController.Awake");
-            playerWeaponControllers.Clear();
+            SetClear();
         }
         
         [HarmonyPatch(typeof(Done_GameController), "BossIsDead")]
@@ -268,14 +318,20 @@ namespace BepInPluginSample
         public static void BossIsDead(Done_GameController __instance)
         {
             logger.LogWarning($"Done_GameController.BossIsDead");
-            playerWeaponControllers.Clear();
+            SetClear();
         }      
+
         [HarmonyPatch(typeof(Done_GameController), "GameOver")]
-        [HarmonyPostfix]
-        public static void GameOver(Done_GameController __instance)
+        [HarmonyPrefix]
+        public static bool GameOver(Done_GameController __instance)
         {
             logger.LogWarning($"Done_GameController.GameOver");
-            playerWeaponControllers.Clear();
+            if (gameOver.Value)
+            {
+                SetClear();
+                return true;
+            }
+            return false;
         }
 
         [HarmonyPatch(typeof(PlayerWeaponController), "Start")]
@@ -287,6 +343,29 @@ namespace BepInPluginSample
             __instance.maxAmmo *= ammoMulti.Value;
             __instance.currentAmmo = __instance.maxAmmo;
             logger.LogWarning($"PlayerWeaponController.Start {__instance.currentAmmo} , {__instance.maxAmmo}");
+        }
+        
+        [HarmonyPatch(typeof(PlayerLaserScript), "Start")]
+        [HarmonyPostfix]
+        public static void StartPost(PlayerLaserScript __instance)
+        {
+            playerLaserScript=__instance;
+
+            __instance.maxAmmo *= ammoMulti.Value;
+            __instance.currentAmmo = __instance.maxAmmo;
+            logger.LogWarning($"PlayerWeaponController.Start {__instance.currentAmmo} , {__instance.maxAmmo}");
+        }
+                
+        [HarmonyPatch(typeof(ShieldActivatorScript), "Start")]
+        [HarmonyPostfix]
+        public static void StartPost(ShieldActivatorScript __instance)
+        {
+            shieldActivatorScript = __instance;
+
+            __instance.maxAmmo *= ammoMulti.Value;
+            __instance.currentAmmo = __instance.maxAmmo;
+            logger.LogWarning($"PlayerWeaponController.Start {__instance.currentAmmo} , {__instance.maxAmmo}");
+            logger.LogWarning($"PlayerWeaponController.Start {__instance.fireRate} , {__instance.timeOfShield}");
         }
 
 
@@ -303,6 +382,48 @@ namespace BepInPluginSample
         {
             logger.LogWarning($"Done_PlayerController.Start");
         }
+        
+        [HarmonyPatch(typeof(DestroyPlayer), "OnTriggerEnter")]
+        [HarmonyPrefix]
+        public static bool OnTriggerEnter(DestroyPlayer __instance, Collider other)
+        {
+            logger.LogWarning($"DestroyPlayer.OnTriggerEnter {other.tag}");
+            if (!destroyPlayer.Value)
+            {
+                if ( other.tag == "Player")
+                {
+                    return false;
+                }
+            }
+            return true;
+        }        
+        [HarmonyPatch(typeof(CheckPlayersShield), "OnTriggerEnter")]
+        [HarmonyPrefix]
+        public static bool OnTriggerEnter(CheckPlayersShield __instance, Collider other)
+        {
+            logger.LogWarning($"CheckPlayersShield.OnTriggerEnter {other.tag} , {other.gameObject.tag}");
+            if (!destroyPlayer.Value)
+            {
+                if (other.gameObject.tag == "ShieldOfPlayer")
+                    {
+                    return false;
+                }
+            }
+            return true;
+        }
+                /*
+        [HarmonyPatch(typeof(DestroyPlayer), "Start")]
+        [HarmonyPrefix]
+        public static bool Start(DestroyPlayer __instance)
+        {
+            logger.LogWarning($"DestroyPlayer.Start");
+            if (!destroyPlayer.Value)
+            {
+                return false;
+            }
+            return true;
+        }
+        */
 
         /*
         [HarmonyPatch(typeof(AEnemy), "DamageMult", MethodType.Setter)]
